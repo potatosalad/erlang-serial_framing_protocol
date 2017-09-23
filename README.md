@@ -1,6 +1,6 @@
-# SerialFramingProtocol
+# Serial Framing Protocol (SFP)
 
-**TODO: Add description**
+[![Hex.pm](https://img.shields.io/hexpm/v/serial_framing_protocol.svg)](https://hex.pm/packages/serial_framing_protocol)
 
 ## Installation
 
