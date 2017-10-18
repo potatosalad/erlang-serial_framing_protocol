@@ -10,6 +10,7 @@
 %%%-------------------------------------------------------------------
 -module(serial_framing_protocol_nif).
 
+%% NIF
 -export([getsizeof/0]).
 -export([open/0]).
 -export([init/1]).
@@ -19,6 +20,10 @@
 -export([write/2]).
 
 -on_load(init/0).
+
+%%%===================================================================
+%%% NIF Functions
+%%%===================================================================
 
 getsizeof() ->
 	erlang:nif_error({nif_not_loaded, ?MODULE}).

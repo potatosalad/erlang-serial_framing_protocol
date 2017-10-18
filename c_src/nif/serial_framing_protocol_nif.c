@@ -3,6 +3,7 @@
 
 #include "serial_framing_protocol_nif.h"
 #include "serial_framing_protocol.h"
+#include "xnif_slice.h"
 
 static ERL_NIF_TERM ATOM_false;
 static ERL_NIF_TERM ATOM_ok;
@@ -119,6 +120,14 @@ serial_framing_protocol_nif_is_connected_1(ErlNifEnv *env, int argc, const ERL_N
     }
 }
 
+static int serial_framing_protocol_nif_read_2_work(ErlNifEnv *env, xnif_slice_t *slice, int *phasep, size_t *offsetp,
+                                                   size_t reductions);
+static ERL_NIF_TERM serial_framing_protocol_nif_read_2_done(ErlNifEnv *env, xnif_slice_t *slice);
+
+static xnif_slice_func_t serial_framing_protocol_nif_read_2_func = {
+    serial_framing_protocol_nif_read_2_work, serial_framing_protocol_nif_read_2_done, NULL, NULL,
+};
+
 static ERL_NIF_TERM
 serial_framing_protocol_nif_read_2(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -128,14 +137,60 @@ serial_framing_protocol_nif_read_2(ErlNifEnv *env, int argc, const ERL_NIF_TERM 
         !enif_inspect_iolist_as_binary(env, argv[1], &data)) {
         return enif_make_badarg(env);
     }
-    uint8_t *octets = (uint8_t *)data.data;
+    if (data.size <= XNIF_SLICE_MAX_PER_SLICE) {
+        uint8_t *octets = (uint8_t *)data.data;
+        size_t len = (size_t)data.size;
+        while ((len--) > 0) {
+            (void)sfpDeliverOctet(&s->ctx, *octets, NULL, 0, NULL);
+            octets++;
+        }
+        return ATOM_ok;
+    }
+    xnif_slice_t *slice = xnif_slice_create("read", &serial_framing_protocol_nif_read_2_func, 0, data.size);
+    if (slice == NULL) {
+        return enif_make_badarg(env);
+    }
+    ERL_NIF_TERM newargv[2];
+    newargv[0] = argv[0];
+    newargv[1] = argv[1];
+    return xnif_slice_schedule(env, slice, 2, newargv);
+}
+
+static int
+serial_framing_protocol_nif_read_2_work(ErlNifEnv *env, xnif_slice_t *slice, int *phasep, size_t *offsetp, size_t reductions)
+{
+    size_t offset = *offsetp;
+    sfp_socket_t *s = NULL;
+    ErlNifBinary data;
+    if (slice->argc != 2 || !enif_get_resource(env, slice->argv[0], serial_framing_protocol_resource_type, (void **)&s) ||
+        !enif_inspect_iolist_as_binary(env, slice->argv[1], &data)) {
+        return -1;
+    }
+    uint8_t *octets = (uint8_t *)data.data + offset;
     size_t len = (size_t)data.size;
     while ((len--) > 0) {
         (void)sfpDeliverOctet(&s->ctx, *octets, NULL, 0, NULL);
         octets++;
     }
+    *offsetp = offset + reductions;
+    return 0;
+}
+
+static ERL_NIF_TERM
+serial_framing_protocol_nif_read_2_done(ErlNifEnv *env, xnif_slice_t *slice)
+{
+    (void)env;
+    (void)slice;
     return ATOM_ok;
 }
+
+static int serial_framing_protocol_nif_write_2_work(ErlNifEnv *env, xnif_slice_t *slice, int *phasep, size_t *offsetp,
+                                                    size_t reductions);
+static ERL_NIF_TERM serial_framing_protocol_nif_write_2_done(ErlNifEnv *env, xnif_slice_t *slice);
+
+static xnif_slice_func_t serial_framing_protocol_nif_write_2_func = {
+    serial_framing_protocol_nif_write_2_work, serial_framing_protocol_nif_write_2_done, NULL, NULL,
+};
 
 static ERL_NIF_TERM
 serial_framing_protocol_nif_write_2(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
@@ -146,9 +201,54 @@ serial_framing_protocol_nif_write_2(ErlNifEnv *env, int argc, const ERL_NIF_TERM
         !enif_inspect_iolist_as_binary(env, argv[1], &data)) {
         return enif_make_badarg(env);
     }
-    uint8_t *buf = (uint8_t *)data.data;
-    size_t len = (size_t)data.size;
+    if (data.size <= XNIF_SLICE_MAX_PER_SLICE) {
+        uint8_t *buf = (uint8_t *)data.data;
+        size_t len = (size_t)data.size;
+        while (len > (SFP_CONFIG_MAX_PACKET_SIZE - 2)) {
+            (void)sfpWritePacket(&s->ctx, buf, SFP_CONFIG_MAX_PACKET_SIZE - 2, NULL);
+            len -= SFP_CONFIG_MAX_PACKET_SIZE - 2;
+            buf += SFP_CONFIG_MAX_PACKET_SIZE - 2;
+        }
+        (void)sfpWritePacket(&s->ctx, buf, len, NULL);
+        return ATOM_ok;
+    }
+    xnif_slice_t *slice = xnif_slice_create("write", &serial_framing_protocol_nif_write_2_func, 0, data.size);
+    if (slice == NULL) {
+        return enif_make_badarg(env);
+    }
+    ERL_NIF_TERM newargv[2];
+    newargv[0] = argv[0];
+    newargv[1] = argv[1];
+    return xnif_slice_schedule(env, slice, 2, newargv);
+}
+
+static int
+serial_framing_protocol_nif_write_2_work(ErlNifEnv *env, xnif_slice_t *slice, int *phasep, size_t *offsetp, size_t reductions)
+{
+    size_t offset = *offsetp;
+    sfp_socket_t *s = NULL;
+    ErlNifBinary data;
+    if (slice->argc != 2 || !enif_get_resource(env, slice->argv[0], serial_framing_protocol_resource_type, (void **)&s) ||
+        !enif_inspect_iolist_as_binary(env, slice->argv[1], &data)) {
+        return -1;
+    }
+    uint8_t *buf = (uint8_t *)data.data + offset;
+    size_t len = reductions;
+    while (len > (SFP_CONFIG_MAX_PACKET_SIZE - 2)) {
+        (void)sfpWritePacket(&s->ctx, buf, SFP_CONFIG_MAX_PACKET_SIZE - 2, NULL);
+        len -= SFP_CONFIG_MAX_PACKET_SIZE - 2;
+        buf += SFP_CONFIG_MAX_PACKET_SIZE - 2;
+    }
     (void)sfpWritePacket(&s->ctx, buf, len, NULL);
+    *offsetp = offset + reductions;
+    return 0;
+}
+
+static ERL_NIF_TERM
+serial_framing_protocol_nif_write_2_done(ErlNifEnv *env, xnif_slice_t *slice)
+{
+    (void)env;
+    (void)slice;
     return ATOM_ok;
 }
 
@@ -181,6 +281,10 @@ static ErlNifResourceTypeInit serial_framing_protocol_resource_init = {serial_fr
 static int
 serial_framing_protocol_nif_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM load_info)
 {
+    int retval;
+    if ((retval = xnif_slice_load(env, priv_data, load_info)) != 0) {
+        return retval;
+    }
     if (serial_framing_protocol_resource_type == NULL) {
         serial_framing_protocol_resource_type =
             enif_open_resource_type_x(env, "serial_framing_protocol_resource", &serial_framing_protocol_resource_init,
@@ -201,6 +305,10 @@ serial_framing_protocol_nif_load(ErlNifEnv *env, void **priv_data, ERL_NIF_TERM 
 static int
 serial_framing_protocol_nif_upgrade(ErlNifEnv *env, void **priv_data, void **old_priv_data, ERL_NIF_TERM load_info)
 {
+    int retval;
+    if ((retval = xnif_slice_upgrade(env, priv_data, old_priv_data, load_info)) != 0) {
+        return retval;
+    }
     if (serial_framing_protocol_resource_type == NULL) {
         return serial_framing_protocol_nif_load(env, priv_data, load_info);
     }
@@ -210,6 +318,7 @@ serial_framing_protocol_nif_upgrade(ErlNifEnv *env, void **priv_data, void **old
 static void
 serial_framing_protocol_nif_unload(ErlNifEnv *env, void *priv_data)
 {
+    (void)xnif_slice_unload(env, priv_data);
     serial_framing_protocol_resource_type = NULL;
     return;
 }
