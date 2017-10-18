@@ -1,7 +1,7 @@
 defmodule SerialFramingProtocolTest do
   use ExUnit.Case, async: true
   use PropCheck
-  doctest SerialFramingProtocol
+  # doctest SerialFramingProtocol
 
   property "process socket pair" do
     forall message in binary() do

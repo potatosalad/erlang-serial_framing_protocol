@@ -4,7 +4,7 @@ defmodule SerialFramingProtocol.Mixfile do
   def project() do
     [
       app: :serial_framing_protocol,
-      version: "1.0.0",
+      version: "1.1.0",
       elixir: "~> 1.4",
       elixirc_paths: elixirc_paths(Mix.env()),
       build_embedded: Mix.env() == :prod,
@@ -15,6 +15,10 @@ defmodule SerialFramingProtocol.Mixfile do
       make_clean: ["clean"],
       make_cwd: "c_src",
       description: description(),
+      docs: fn ->
+        {ref, 0} = System.cmd("git", ["rev-parse", "--verify", "--quiet", "HEAD"])
+        [source_ref: ref, main: "SerialFramingProtocol", extras: ["README.md", "CHANGELOG.md"]]
+      end,
       name: "serial_framing_protocol",
       package: package(),
       source_url: "https://github.com/potatosalad/erlang-serial_framing_protocol"
@@ -43,7 +47,7 @@ defmodule SerialFramingProtocol.Mixfile do
   defp deps() do
     [
       {:elixir_make, "~> 0.4", runtime: false},
-      {:ex_doc, "~> 0.16", only: :dev},
+      {:ex_doc, "~> 0.18", only: :dev},
       {:propcheck, "~> 1.0", only: :test}
     ]
   end
